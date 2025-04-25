@@ -6,7 +6,12 @@ Most aligners were not designed for diploid assemblies(eg. [HG002](https://githu
 
 ## Installation
 
-You can download the latest compiled binary from the [Releases](https://github.com/jheinz27/diploidinator/releases) page.
+(Recommended) You can download the latest compiled binary from the [Releases](https://github.com/jheinz27/diploidinator/releases) page.
+```
+wget https://github.com/jheinz27/diploidinator/releases/download/v0.1.0/diploidinator
+chmod +x diploidinator
+./diploidinator
+```
 
 or build from source 
 ``` 

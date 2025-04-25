@@ -28,4 +28,4 @@ minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.MATERNA
 minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.PATERNAL.fasta reads.fastq > out_pat.paf 
 diploidinator out_mat.paf out_pat.paf > out_haps_merge.paf
 ```
-[![Build Status](https://img.shields.io/badge/status-active-brightgreen)]()  
+

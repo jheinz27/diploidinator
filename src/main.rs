@@ -7,6 +7,10 @@ use diploidinator::*;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        eprintln!("ERROR: Too few arguments\nUsage: {} <hap1.paf> <hap2.paf>", args[0]);
+        std::process::exit(1);
+    }
     let stdout = io::stdout();
     let mut handle = stdout.lock();
 

@@ -22,7 +22,7 @@ cargo build --release
 ```
 
 ## Example Usage
-NOTE: It is important to use the `--secondary=no --paf-no-hit` flags when aligning with [minimap2] (https://github.com/lh3/minimap2). The diploidinator currently only works on paf files. 
+NOTE: It is important to use the `--secondary=no --paf-no-hit` flags when aligning with [minimap2](https://github.com/lh3/minimap2). The diploidinator currently only works on paf files. 
 ```
 minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.MATERNAL.fasta read.fastq > out_mat.paf
 minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.PATERNAL.fasta reads.fastq > out_pat.paf 

@@ -1,6 +1,6 @@
 # The diploid-inator
 
-Most aligners were not designed for diploid assemblies(eg. [HG002](https://github.com/marbl/HG002)), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a simple script to align reads to each haploid of the diploid assembly and thne parse both paf files to choose the better alignment of the read based on the alignment score
+Most aligners were not designed for diploid assemblies(eg. [HG002](https://github.com/marbl/HG002)), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a simple script to align reads to each haploid of the diploid assembly and then parse both paf files to choose the better alignment of the read based on the alignment score
 
 ---
 
@@ -28,4 +28,5 @@ minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.MATERNA
 minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.PATERNAL.fasta reads.fastq > out_pat.paf 
 diploidinator out_mat.paf out_pat.paf > out_haps_merge.paf
 ```
-
+## Citation
+The Diploidinator was developed as a preprocessing step for the Breakinator, discussed in our preprint at: https://www.biorxiv.org/content/10.1101/2025.07.15.664946v1.abstract

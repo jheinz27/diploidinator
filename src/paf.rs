@@ -5,7 +5,6 @@ use std::{
 };
 use crate::cli::Cli;
 
-//TODO: handle secondary alingments!!! 
 
 pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
@@ -15,8 +14,8 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let file1 = File::open( &args.mat)?;
     let file2 = File::open(&args.pat)?;
 
-    let mut reader1 = BufReader::new(file1).lines().peekable();
-    let mut reader2 = BufReader::new(file2).lines().peekable();
+    let mut mat_iter = BufReader::new(file1).lines().peekable();
+    let mut pat_iter = BufReader::new(file2).lines().peekable();
 
     let mut out_mat = BufWriter::new(File::create("out_mat.paf")?);
     let mut out_pat = BufWriter::new(File::create("out_pat.paf")?);
@@ -24,10 +23,13 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let mut cluster_mat = Vec::with_capacity(10); 
     let mut cluster_pat = Vec::with_capacity(10); 
 
-    while let Some(Ok(_)) = reader1.peek() {
-        let _ = get_clusters(&mut reader1, &mut cluster_mat);
-        let _ = get_clusters(&mut reader2, &mut cluster_pat);
+    while mat_iter.peek().is_some() || pat_iter.peek().is_some() {
+        let _ = get_clusters(&mut mat_iter, &mut cluster_mat);
+        let _ = get_clusters(&mut pat_iter, &mut cluster_pat);
 
+        let id1 = cluster_mat[0].split('\t').next().unwrap();
+        let id2 = cluster_pat[0].split('\t').next().unwrap();
+        assert_eq!(id1, id2, "PAF streams out of sync: {id1} vs {id2}");
         //get cluster wiht the higher weighted alignment score
         let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat); 
         
@@ -81,29 +83,33 @@ pub fn get_weighted_as(cur_clust : &Vec<String>) -> f32 {
     let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
 
     for alignment in cur_clust {
-        let fields: Vec<&str> = alignment.split('\t').collect(); 
+        let mut fields = alignment.split('\t');
+
+        //skip to relevant columns
+        let _qname = fields.next();
+        let _qlen = fields.next();
+        let qstart = fields.next().unwrap().parse::<u32>().unwrap();
+        let qend = fields.next().unwrap().parse::<u32>().unwrap();
+
+        let mut is_secondary = false; 
+        let mut as_score = 0;
+        //find AS and tp tags (start from field 12)
+        for field in fields.skip(8) { // skip to tags
+            if field.starts_with("tp:A:S") { is_secondary = true; }
+            if field.starts_with("AS:i:") { 
+                 as_score = field[5..].parse().unwrap_or(0);
+            }
+        }
         
         //do not factor secondary alignments into choosing best alignment
-        let is_secondary = fields.iter()
-        .find(|&&f| f.starts_with("tp:A:"))
-        .map(|s| s.ends_with('S')) 
-        .unwrap_or(false);
-
         if is_secondary { continue; } 
+    
 
-        //get alignment length in read_coordinates
-        let read_start: u32 = fields[2].parse().unwrap(); 
-        let read_end: u32 = fields[3].parse().unwrap(); 
-        sum_alignment_lens += read_end - read_start;
+        sum_alignment_lens += qend - qstart;
 
         //store read alignment coordinates to merge all overlaps at end
-        read_intervals.push((read_start, read_end));
+        read_intervals.push((qstart, qend));
 
-        //extract alignment score in AS tag and add to running sum 
-        let as_score = fields.iter()
-            .find(|&&f| f.starts_with("AS:i:"))
-            .map(|s| s[5..].parse::<i32>().unwrap_or(0))
-            .unwrap_or(0); // default to 0 if tag missing 
         sum_alignment_scores += as_score; 
 
     }
@@ -118,7 +124,7 @@ pub fn get_weighted_as(cur_clust : &Vec<String>) -> f32 {
 
 
 pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>) -> bool{
-    match (clust1[0].split('\t').nth(4), clust2[0].split('\t').nth(4)) {
+    match (clust1[0].split('\t').nth(5), clust2[0].split('\t').nth(5)) {
         (Some("*"), Some("*")) => return crate::choose_random(clust1[0].split('\t').next().unwrap().to_string()), // both reads unmapped
         (Some("*"), _) => return false, // mat hap unmapped
         (_, Some("*")) => return true, // pat ap unmapped

@@ -37,7 +37,23 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         //move forward by one read for both files
         let _ = get_clusters(&mut mat_iter, &mut cluster_mat);
         let _ = get_clusters(&mut pat_iter, &mut cluster_pat); 
-
+        
+        // handle end-of-file / empty cluster cases CHECK
+        match (cluster_mat.first(), cluster_pat.first()) {
+            (None, None) => break,           // both done
+            (Some(_), None) | (None, Some(_)) => {
+                return Err("SAM streams out of sync: one file ended earlier".into());
+            }
+            (Some(m), Some(p)) => {
+                if m.qname() != p.qname() {
+                    return Err(format!(
+                        "SAM streams out of sync: mat={} pat={}",
+                        String::from_utf8_lossy(m.qname()),
+                        String::from_utf8_lossy(p.qname()),
+                    ).into());
+                }
+            }
+        }
         //get cluster wiht the higher alignment score
         let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat); 
         
@@ -126,10 +142,10 @@ fn get_weighted_as(cur_clust : &mut Vec<Record>) -> f32 {
 }
 
 
-
 //choose which alignment block to keep 
 fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) ->  bool {
     
+    //TODO: add error handling for empty clusters
     let unmappeds = (clust1[0].is_unmapped(), clust2[0].is_unmapped()); 
 
     match unmappeds {
@@ -162,7 +178,7 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) 
 } 
 
 
-//function to get aligned query length
+//function to get query span of aligned seqment
 fn get_alignment_len(rec: &Record) -> u32  {
     let mut qlen = 0;
     //parse cigar string to determine total ALIGNED query length 
@@ -176,24 +192,29 @@ fn get_alignment_len(rec: &Record) -> u32  {
     return qlen; 
 }
 
+//function to get start of query span 
 fn get_query_start(rec: &Record) -> u32 {
     let cigar = rec.cigar();
-    let mut left = 0;
-    for c in cigar.iter() {
-        match *c {
-            Cigar::HardClip(l) | Cigar::SoftClip(l) => left += l,
-            _ => break, // CRITICAL: Stop immediately if we hit a Match/Ins/Del
+    if rec.is_reverse() {
+        let mut right = 0;
+        for c in cigar.iter().rev() {
+            match *c {
+                Cigar::HardClip(l) | Cigar::SoftClip(l) => right += l,
+                _ => break, 
+            }
         }
-    }
-
-    let mut right = 0;
-    for c in cigar.iter().rev() {
-        match *c {
-            Cigar::HardClip(l) | Cigar::SoftClip(l) => right += l,
-            _ => break, // CRITICAL: Stop immediately
+        return right; 
+    } else {
+        let mut left = 0;
+        for c in cigar.iter() {
+            match *c {
+                Cigar::HardClip(l) | Cigar::SoftClip(l) => left += l,
+                _ => break,
+            }
         }
+        return left; 
     }
     
-    if rec.is_reverse() {right} else {left}
+
 }
 

@@ -30,3 +30,6 @@ diploidinator out_mat.paf out_pat.paf > out_haps_merge.paf
 ```
 ## Citation
 The Diploidinator was developed as a preprocessing step for the Breakinator, discussed in our preprint at: https://www.biorxiv.org/content/10.1101/2025.07.15.664946v1.abstract
+
+## Future work
+I am have branched this project and am currently working on providing support for sam/bam/cram formatted files. 

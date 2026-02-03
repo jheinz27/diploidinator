@@ -17,8 +17,9 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let mut mat_iter = BufReader::new(file1).lines().peekable();
     let mut pat_iter = BufReader::new(file2).lines().peekable();
 
-    let mut out_mat = BufWriter::new(File::create("out_mat.paf")?);
-    let mut out_pat = BufWriter::new(File::create("out_pat.paf")?);
+    
+    let mut out_mat = BufWriter::new(File::create( args.out.clone() + "_mat.paf")?);
+    let mut out_pat = BufWriter::new(File::create( args.out.clone()+ "_pat.paf")?);
 
     let mut cluster_mat = Vec::with_capacity(10); 
     let mut cluster_pat = Vec::with_capacity(10); 

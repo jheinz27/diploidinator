@@ -1,23 +1,99 @@
 use rust_htslib::{
-    bam::{self, Read, Record, Writer, Format, record::Aux },
+    bam::{self, Read, Record, Writer, record::Aux },
     errors::Error as BamError,};
 use rust_htslib::{bam::record::{Cigar}};
 use crate::cli::Cli;
 use std::iter::Peekable;
+use rust_htslib::{htslib};
+use std::ffi::CString;
+use std::path::Path;
 
 
+
+/// Helper function to safely peek at the file format using low-level C API
+fn get_format_from_path<P: AsRef<Path>>(path: P) -> bam::Format {
+    let path_str = path.as_ref().to_str().unwrap();
+    let c_path = CString::new(path_str).unwrap();
+
+    unsafe {
+        // Open file in read mode using raw C function
+        let hts_file = htslib::hts_open(c_path.as_ptr(), b"r\0".as_ptr() as *const i8);
+        
+        if hts_file.is_null() {
+            panic!("Could not open file to detect format");
+        }
+
+        // Access the format struct directly from the C pointer
+        let format_struct = (*hts_file).format;
+        
+        // Close the raw file handle immediately
+        htslib::hts_close(hts_file);
+
+        // Map the C format to the Rust enum
+        match format_struct.format {
+            htslib::htsExactFormat_bam => bam::Format::Bam,
+            htslib::htsExactFormat_cram => bam::Format::Cram,
+            // SAM is technically text, sometimes detected as 'sam' or generic text
+            htslib::htsExactFormat_sam => bam::Format::Sam, 
+            _ => bam::Format::Sam, // Default fallback
+        }
+    }
+
+}
+
+
+fn formats_equal(a: &bam::Format, b: &bam::Format) -> bool {
+    match (a, b) {
+        (bam::Format::Bam, bam::Format::Bam) => true,
+        (bam::Format::Cram, bam::Format::Cram) => true,
+        (bam::Format::Sam, bam::Format::Sam) => true,
+        _ => false,
+    }
+}
 
 pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> { 
 
     // read in files 
+    let mat_format = get_format_from_path(&args.mat);
+    let pat_format = get_format_from_path(&args.pat);
+    
+    if !formats_equal(&mat_format, &pat_format) {
+        eprintln!("Error: Input files must have the same format.");
+        std::process::exit(1);
+    }
+
+    //assert_eq!(mat_format, pat_format, "Input files must have the same format (e.g. both BAM, both SAM, or both CRAM)");
+
     let mut mat_reader = bam::Reader::from_path(&args.mat).expect("Failed to open -m file");
     let mut pat_reader = bam::Reader::from_path(&args.pat).expect("Failed to open -p file");
 
 
     let header_mat=  bam::Header::from_template(mat_reader.header());
     let header_pat= bam::Header::from_template(pat_reader.header());
-    let mut out_mat = Writer::from_path ("mat_reads.sam", &header_mat, Format::Sam)?;
-    let mut out_pat= Writer::from_path ("pat_reads.sam", &header_pat, Format::Sam)?;
+    //TODO: add in outout file naming for sam and paf, and have output write to input format, i.e cram and bam too
+    
+
+    let extension = match  mat_format{
+        bam::Format::Bam => ".bam", 
+        bam::Format::Sam => ".sam", 
+        bam::Format::Cram => ".cram", 
+    };
+
+    let mut out_mat = Writer::from_path (args.out.clone() + "_mat" + extension, &header_mat, mat_format)?;
+    let mut out_pat= Writer::from_path (args.out.clone() + "_pat" + extension, &header_pat, pat_format)?;
+    println!("DEBUG: Detected Format: {:?}", mat_format);
+    //TODO: add in error handling
+    if let bam::Format::Cram = mat_format {
+        if let Some(reference) = &args.reference { 
+            out_mat.set_reference(reference).expect("Failed to set CRAM reference");
+            out_pat.set_reference(reference).expect("Failed to set CRAM reference");
+        } else {
+            eprintln!("Error: Output format is CRAM, but no reference FASTA was provided.");
+            eprintln!("Usage hint: add --reference <FILE>");
+            std::process::exit(1);
+        }
+    }
+
 
     //set threads
     mat_reader.set_threads(args.threads)?;
@@ -130,9 +206,9 @@ fn get_weighted_as(cur_clust : &mut Vec<Record>) -> f32 {
     }
     //get total read bases aligned in any record 
     let read_bps_aligned = crate::merge_intervals(&mut read_intervals); 
-    println!("al: {}", sum_alignment_lens); 
-    println!("as: {}", sum_alignment_scores); 
-    println!("intervals: {:?}", read_intervals); 
+    //println!("al: {}", sum_alignment_lens); 
+    //println!("as: {}", sum_alignment_scores); 
+    //println!("intervals: {:?}", read_intervals); 
 
     //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned 
     return (sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32; 
@@ -159,12 +235,12 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) 
     }
 
     //get AS score for read to each haploid
-    println!("hap1"); 
+    //println!("hap1"); 
     let score1 = get_weighted_as(clust1); 
-    println!("s1:{}", score1); 
-    println!("hap2"); 
+    //println!("s1:{}", score1); 
+    //println!("hap2"); 
     let score2 = get_weighted_as(clust2); 
-    println!("s2:{}", score2); 
+    //println!("s2:{}", score2); 
 
     //return bool of higher alignment
     if score1 > score2 {

@@ -45,4 +45,5 @@ $$
 S = B \cdot \frac{\sum_{i=0}^{n} a_i}{\sum_{i=0}^{n} l_i}
 $$
 
+If the scores of the alignment to both reference genomes is equal, then the "better" alignment is assigned randomly by taking the last digit of the hash of the read name. 
 ## example usage 

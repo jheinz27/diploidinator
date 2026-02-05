@@ -9,7 +9,6 @@ use std::ffi::CString;
 use std::path::Path;
 
 
-
 /// Helper function to safely peek at the file format using low-level C API
 fn get_format_from_path<P: AsRef<Path>>(path: P) -> bam::Format {
     let path_str = path.as_ref().to_str().unwrap();
@@ -33,7 +32,6 @@ fn get_format_from_path<P: AsRef<Path>>(path: P) -> bam::Format {
         match format_struct.format {
             htslib::htsExactFormat_bam => bam::Format::Bam,
             htslib::htsExactFormat_cram => bam::Format::Cram,
-            // SAM is technically text, sometimes detected as 'sam' or generic text
             htslib::htsExactFormat_sam => bam::Format::Sam, 
             _ => bam::Format::Sam, // Default fallback
         }
@@ -66,12 +64,9 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut mat_reader = bam::Reader::from_path(&args.mat).expect("Failed to open -m file");
     let mut pat_reader = bam::Reader::from_path(&args.pat).expect("Failed to open -p file");
-
-
+    
     let header_mat=  bam::Header::from_template(mat_reader.header());
     let header_pat= bam::Header::from_template(pat_reader.header());
-    //TODO: add in outout file naming for sam and paf, and have output write to input format, i.e cram and bam too
-    
 
     let extension = match  mat_format{
         bam::Format::Bam => ".bam", 
@@ -81,24 +76,36 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut out_mat = Writer::from_path (args.out.clone() + "_mat" + extension, &header_mat, mat_format)?;
     let mut out_pat= Writer::from_path (args.out.clone() + "_pat" + extension, &header_pat, pat_format)?;
-    println!("DEBUG: Detected Format: {:?}", mat_format);
-    //TODO: add in error handling
+
     if let bam::Format::Cram = mat_format {
-        if let Some(reference) = &args.reference { 
+        if let Some(reference) = &args.ref_mat { 
+            mat_reader.set_reference(reference).expect("Failed to set reference for Maternal Reader"); 
             out_mat.set_reference(reference).expect("Failed to set CRAM reference");
-            out_pat.set_reference(reference).expect("Failed to set CRAM reference");
         } else {
-            eprintln!("Error: Output format is CRAM, but no reference FASTA was provided.");
+            eprintln!("Error: Output format is CRAM, but no reference FASTA for Maternal Hap provided.");
             eprintln!("Usage hint: add --reference <FILE>");
             std::process::exit(1);
         }
     }
 
+    
+    if let bam::Format::Cram = pat_format {
+        if let Some(reference) = &args.ref_pat { 
+            pat_reader.set_reference(reference).expect("Failed to set reference for Paternal Reader");
+            out_pat.set_reference(reference).expect("Failed to set CRAM reference");
+        } else {
+            eprintln!("Error: Output format is CRAM, but no reference FASTA for Paternal Hap was provided.");
+            eprintln!("Usage hint: add --reference <FILE>");
+            std::process::exit(1);
+        }
+    }
 
     //set threads
     mat_reader.set_threads(args.threads)?;
     pat_reader.set_threads(args.threads)?;
-    //out_shared.set_threads(args.threads)?;
+    out_mat.set_threads(args.threads)?;
+    out_pat.set_threads(args.threads)?;
+
 
     //peakable iterators of each file
     let mut mat_iter = mat_reader.records().peekable();
@@ -142,7 +149,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         } else {
             for rec in cluster_pat.iter_mut() {
                 //output to pat file 
-            
+
                 out_pat.write(rec)?;
 
             }

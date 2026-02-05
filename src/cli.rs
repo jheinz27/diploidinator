@@ -13,8 +13,12 @@ pub struct Cli {
     pub pat: String, 
 
     //needed for cram format TODO:Add in error handling to make sure this is provifed 
-    #[arg(short, long, value_name = "FILE", required = false, help="reference FASTA for cram file")]
-    pub reference: Option<String>,
+    //NEED REF FOR MAT AND FOR PAT 
+    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file")]
+    pub ref_mat: Option<String>,
+
+    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file")]
+    pub ref_pat: Option<String>,
 
     #[arg(short, long, value_name = "PREFIX", default_value = "diploidinator_out", help="hap2.sam/bam/cram")]
     pub out: String, 
@@ -24,6 +28,7 @@ pub struct Cli {
     pub paf: bool,
 
     // number of threads to use
-    #[arg(short, long,value_name = "INT", default_value_t = 2, help = "Number of threads to use for BAM file reading")]
+    // need to divide by 4 and take floor
+    #[arg(short, long,value_name = "INT", default_value_t = 4, help = "Number of threads to use for BAM file decompression")]
     pub threads: usize
 }

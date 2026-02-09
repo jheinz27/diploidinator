@@ -15,9 +15,9 @@ Options:
   -p, --pat <FILE>      hap2.sam/bam/cram
       --ref-mat <FILE>  reference FASTA for cram file
       --ref-pat <FILE>  reference FASTA for cram file
-  -o, --out <PREFIX>    hap2.sam/bam/cram [default: diploidinator_out]
+  -o, --out <PREFIX>    prefix of output files [default: diploidinator_out]
       --paf             input files are PAF
-  -t, --threads <INT>   Number of threads to use for BAM file decompression [default: 4]
+  -t, --threads <INT>   Number of threads to use for BAM file decompression [default: 8]
   -h, --help            Print help
   -V, --version         Print version
 ```

@@ -7,6 +7,7 @@ use std::iter::Peekable;
 use rust_htslib::{htslib};
 use std::ffi::CString;
 use std::path::Path;
+use std::cmp::max; 
 
 
 /// Helper function to safely peek at the file format using low-level C API
@@ -100,11 +101,22 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+
     //set threads
-    mat_reader.set_threads(args.threads)?;
-    pat_reader.set_threads(args.threads)?;
-    out_mat.set_threads(args.threads)?;
-    out_pat.set_threads(args.threads)?;
+    //if user specifies less than 4, set to 4 (1 thread for each reader and each writer is needed)
+    let avail_threads = max(4, args.threads); 
+    //assign write:reader threads 3:1
+    let r = max(1, avail_threads / 8); 
+    //if any additional threads available, assign to writer
+    //if num threads is odd, leave one idle
+    let w = (avail_threads - (2 * r)) / 2;
+
+    mat_reader.set_threads(r )?;
+    pat_reader.set_threads(r)?;
+    out_mat.set_threads(w)?;
+    out_pat.set_threads(w)?;
+
+    println!("reader_threads: {}, writer_threads: {}", r, w ); 
 
 
     //peakable iterators of each file

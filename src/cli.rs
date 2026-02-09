@@ -2,7 +2,7 @@ use clap::Parser;
 
 
 #[derive(Parser, Debug)]
-#[command( name = "diploidinator", about = "Choose the best alignment to each haploid of a diploid assembly", version = "1.1")]
+#[command( name = "diploidinator", about = "Diploidinator: Choose the best alignment to each haploid of a diploid assembly", version = "1.1")]
 
 pub struct Cli {
     // 
@@ -14,21 +14,20 @@ pub struct Cli {
 
     //needed for cram format TODO:Add in error handling to make sure this is provifed 
     //NEED REF FOR MAT AND FOR PAT 
-    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file")]
+    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file (mat)")]
     pub ref_mat: Option<String>,
 
-    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file")]
+    #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file (pat)")]
     pub ref_pat: Option<String>,
 
-    #[arg(short, long, value_name = "PREFIX", default_value = "diploidinator_out", help="hap2.sam/bam/cram")]
+    #[arg(short, long, value_name = "PREFIX", default_value = "diploidinator_out", help="prefix of output files")]
     pub out: String, 
 
     // inputs are PAF files
     #[arg(long,value_name = "BOOL", default_value_t = false, help = "input files are PAF")]
     pub paf: bool,
 
-    // number of threads to use
-    // need to divide by 4 and take floor
-    #[arg(short, long,value_name = "INT", default_value_t = 4, help = "Number of threads to use for BAM file decompression")]
+    // number of total threads to use
+    #[arg(short, long,value_name = "INT", default_value_t = 8, help = "Total thread pool size (min 4). Multiples of 8 recommended for optimal read/write balance.")]
     pub threads: usize
 }

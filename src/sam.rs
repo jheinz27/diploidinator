@@ -10,31 +10,25 @@ use std::path::Path;
 use std::cmp::max; 
 
 
-/// Helper function to safely peek at the file format using low-level C API
-fn get_format_from_path<P: AsRef<Path>>(path: P) -> bam::Format {
-    let path_str = path.as_ref().to_str().unwrap();
+/// Helper function to peek at the file format using c path 
+fn get_format_from_path<P: AsRef<Path>>(path: P) -> Result<bam::Format, Box<dyn std::error::Error>> {
+    let path_str = path.as_ref().to_str().ok_or("Invalid UTF-8 path")?;
     let c_path = CString::new(path_str).unwrap();
 
     unsafe {
-        // Open file in read mode using raw C function
         let hts_file = htslib::hts_open(c_path.as_ptr(), b"r\0".as_ptr() as *const i8);
-        
         if hts_file.is_null() {
-            panic!("Could not open file to detect format");
+            return Err(format!("Could not open file: {}", path_str).into());
         }
-
-        // Access the format struct directly from the C pointer
         let format_struct = (*hts_file).format;
-        
-        // Close the raw file handle immediately
         htslib::hts_close(hts_file);
 
         // Map the C format to the Rust enum
         match format_struct.format {
-            htslib::htsExactFormat_bam => bam::Format::Bam,
-            htslib::htsExactFormat_cram => bam::Format::Cram,
-            htslib::htsExactFormat_sam => bam::Format::Sam, 
-            _ => bam::Format::Sam, // Default fallback
+            htslib::htsExactFormat_bam => Ok(bam::Format::Bam),
+            htslib::htsExactFormat_cram => Ok(bam::Format::Cram),
+            htslib::htsExactFormat_sam => Ok(bam::Format::Sam), 
+            _ => Err(format!("Unsupported or unknown file format for: {}", path_str).into()),
         }
     }
 
@@ -53,11 +47,11 @@ fn formats_equal(a: &bam::Format, b: &bam::Format) -> bool {
 pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> { 
 
     // read in files 
-    let mat_format = get_format_from_path(&args.mat);
-    let pat_format = get_format_from_path(&args.pat);
+    let mat_format = get_format_from_path(&args.mat).expect("Failed to identify maternal file format");
+    let pat_format = get_format_from_path(&args.pat).expect("Failed to identify paternal file format");
     
     if !formats_equal(&mat_format, &pat_format) {
-        eprintln!("Error: Input files must have the same format.");
+        eprintln!("Error: Input files must have the same format (found {:?} and {:?}).", mat_format, pat_format);
         std::process::exit(1);
     }
 
@@ -75,16 +69,18 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         bam::Format::Cram => ".cram", 
     };
 
+
+
     let mut out_mat = Writer::from_path (args.out.clone() + "_mat" + extension, &header_mat, mat_format)?;
     let mut out_pat= Writer::from_path (args.out.clone() + "_pat" + extension, &header_pat, pat_format)?;
 
     if let bam::Format::Cram = mat_format {
         if let Some(reference) = &args.ref_mat { 
             mat_reader.set_reference(reference).expect("Failed to set reference for Maternal Reader"); 
-            out_mat.set_reference(reference).expect("Failed to set CRAM reference");
+            out_mat.set_reference(reference).expect("Failed to ses reference for Maternal Writer");
         } else {
-            eprintln!("Error: Output format is CRAM, but no reference FASTA for Maternal Hap provided.");
-            eprintln!("Usage hint: add --reference <FILE>");
+            eprintln!("Error: input format is CRAM, but no reference FASTA for Maternal Hap provided.");
+            eprintln!("Usage hint: add --ref-mat <FILE>");
             std::process::exit(1);
         }
     }
@@ -93,10 +89,10 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let bam::Format::Cram = pat_format {
         if let Some(reference) = &args.ref_pat { 
             pat_reader.set_reference(reference).expect("Failed to set reference for Paternal Reader");
-            out_pat.set_reference(reference).expect("Failed to set CRAM reference");
+            out_pat.set_reference(reference).expect("Failed to set reference for Paternal Writer");
         } else {
-            eprintln!("Error: Output format is CRAM, but no reference FASTA for Paternal Hap was provided.");
-            eprintln!("Usage hint: add --reference <FILE>");
+            eprintln!("Error: input format is CRAM, but no reference FASTA for Paternal Hap was provided.");
+            eprintln!("Usage hint: add --ref-pat <FILE>");
             std::process::exit(1);
         }
     }
@@ -111,12 +107,13 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     //if num threads is odd, leave one idle
     let w = (avail_threads - (2 * r)) / 2;
 
+    //assign threads to each reader/writer pair
     mat_reader.set_threads(r )?;
     pat_reader.set_threads(r)?;
     out_mat.set_threads(w)?;
     out_pat.set_threads(w)?;
 
-    println!("reader_threads: {}, writer_threads: {}", r, w ); 
+    //println!("reader_threads: {}, writer_threads: {}", r, w ); 
 
 
     //peakable iterators of each file
@@ -137,12 +134,12 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         match (cluster_mat.first(), cluster_pat.first()) {
             (None, None) => break,           // both done
             (Some(_), None) | (None, Some(_)) => {
-                return Err("SAM streams out of sync: one file ended earlier".into());
+                return Err("alignment streams out of sync: one file ended earlier".into());
             }
             (Some(m), Some(p)) => {
                 if m.qname() != p.qname() {
                     return Err(format!(
-                        "SAM streams out of sync: mat={} pat={}",
+                        "alignment streams out of sync: mat={} pat={}",
                         String::from_utf8_lossy(m.qname()),
                         String::from_utf8_lossy(p.qname()),
                     ).into());
@@ -150,7 +147,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         //get cluster wiht the higher alignment score
-        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat); 
+        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat)?; 
         
         //higher alignment score to maternal hap
         if is_winner_mat {
@@ -172,30 +169,54 @@ Ok(())
 }
 
 //function to move ahead one read group at a time for SAM/BAM/CRAM
-fn get_clusters<I>(records: &mut Peekable<I>, cluster: &mut Vec<Record>)-> Result<(), BamError>
+fn get_clusters<I>(records: &mut Peekable<I>, cluster: &mut Vec<Record>)-> Result<(), Box<dyn std::error::Error>>
 where 
     I: Iterator<Item= Result<Record,BamError>>,
 {
     cluster.clear();
-    if let Some(Ok(record)) = records.next() {
-        let cur_id = record.qname().to_vec(); 
-        cluster.push(record); 
-        
-        while let Some(Ok(next)) = records.peek() {
-            if  next.qname() == cur_id.as_slice() {
-                if let Some(rec)= records.next() {
-                    cluster.push(rec?);
-                }
-            } else {
-                break;
-            }
-        }
+
+    let first_record = match records.next() {
+        Some(Ok(r)) => r,
+        Some(Err(e)) => return Err(Box::new(e)), // CRASH HERE if file is bad
+        None => return Ok(()), // End of file (Normal)
     };
+
+    let cur_id = first_record.qname().to_vec(); 
+    cluster.push(first_record); 
+
+    loop {
+        // We peek at next line
+        let peek_result = records.peek();
+
+        match peek_result {
+            //Next record is valid
+            Some(Ok(next_rec)) => {
+                if next_rec.qname() == cur_id.as_slice() {
+                    // next record belongs to this cluster, consume
+    
+                    let rec = records.next().unwrap().unwrap();
+                    cluster.push(rec);
+                } else {
+                    // Belongs to the NEXT cluster. 
+                    break; 
+                }
+            },
+            // Next record is an ERROR
+            Some(Err(_)) => {
+            
+                let err = records.next().unwrap().unwrap_err();
+                return Err(Box::new(err)); 
+            },
+            //End of File
+            None => break,
+        }
+    }
+
     return Ok(())
 }
 
 //helper function to get weighted score of reads
-fn get_weighted_as(cur_clust : &mut Vec<Record>) -> f32 {
+fn get_weighted_as(cur_clust : &mut Vec<Record>) -> Result<f32, Box<dyn std::error::Error>> {
     
     let mut sum_alignment_lens = 0; 
     let mut sum_alignment_scores = 0;
@@ -214,23 +235,24 @@ fn get_weighted_as(cur_clust : &mut Vec<Record>) -> f32 {
             Ok(Aux::U8(v))  => v as i32,
             Ok(Aux::U16(v)) => v as i32, 
             Ok(Aux::U32(v)) => v as i32, 
-            _ => 0,// TODO: FIX to throw an error here
+            _ => return Err(format!("Read '{}' is missing the 'AS' tag", 
+            String::from_utf8_lossy(rec.qname())).into()),
         };
 
         
         sum_alignment_scores += alignment_score; 
         let read_start = get_query_start(rec); 
-        //TODO: check handling of reverse strand cases, may need to change alignment_len
+    
         read_intervals.push((read_start, read_start + get_alignment_len(rec))) 
     }
+    if sum_alignment_lens == 0 {
+        return Ok(0.0);
+    } 
+
     //get total read bases aligned in any record 
     let read_bps_aligned = crate::merge_intervals(&mut read_intervals); 
-    //println!("al: {}", sum_alignment_lens); 
-    //println!("as: {}", sum_alignment_scores); 
-    //println!("intervals: {:?}", read_intervals); 
 
-    //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned 
-    return (sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32; 
+    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32); 
 
 
 
@@ -238,37 +260,37 @@ fn get_weighted_as(cur_clust : &mut Vec<Record>) -> f32 {
 
 
 //choose which alignment block to keep 
-fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) ->  bool {
+fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) ->  Result<bool,Box<dyn std::error::Error>> {
     
-    //TODO: add error handling for empty clusters
+    if clust1.is_empty() || clust2.is_empty() {
+        return Err("Fatal Error: Attempted to compare empty read clusters. This usually indicates a file sync issue.".into());
+    }
+
     let unmappeds = (clust1[0].is_unmapped(), clust2[0].is_unmapped()); 
 
     match unmappeds {
         (true, true) => {
             let qname_string = String::from_utf8_lossy(clust1[0].qname()).into_owned();
-            return crate::choose_random(qname_string);
+            return Ok(crate::choose_random(qname_string));
         }, //both unmapped 
-        (true, false) => return false, // pat mapped 
-        (false, true) => return true, // mat mapped
+        (true, false) => return Ok(false), // pat mapped 
+        (false, true) => return Ok(true), // mat mapped
         _ => {} //both mapped
     }
 
     //get AS score for read to each haploid
-    //println!("hap1"); 
-    let score1 = get_weighted_as(clust1); 
-    //println!("s1:{}", score1); 
-    //println!("hap2"); 
-    let score2 = get_weighted_as(clust2); 
-    //println!("s2:{}", score2); 
+
+    let score1 = get_weighted_as(clust1)?; 
+    let score2 = get_weighted_as(clust2)?; 
 
     //return bool of higher alignment
     if score1 > score2 {
-        true
+        Ok(true)
     } else if score1 < score2 {
-        false
+        Ok(false)
     } else {
         let qname_string = String::from_utf8_lossy(clust1[0].qname()).into_owned();
-        crate::choose_random(qname_string)
+        Ok(crate::choose_random(qname_string))
     }
 } 
 

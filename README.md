@@ -4,11 +4,22 @@ Most aligners were not designed for diploid assemblies (eg. HG002), so when alig
 
 
 ## Installation 
-TODO 
+Recommended: Download precompiled binary:
+```
+Todo
+```
+
+Build from source:
+```
+git clone https://github.com/jheinz27/diploidinator.git
+cd diploidinator
+cargo build --release
+./target/release/diploidinator
+```
 
 ## Usage
 ```
-Diploidinator: Choose the best alignment to each haploid of a diploid assembly
+Diploidinator: Choose the best alignment to each haploid of a diploid assembly for every read
 
 Usage: diploidinator_sams [OPTIONS] --mat <FILE> --pat <FILE>
 
@@ -30,8 +41,8 @@ Options:
 The Diploidinator will only work on a name sorted file, which is the default [minimap2](https://github.com/lh3/minimap2) output. However, if it is desired to use the diploidinator on index sorted bam files, it will be necessary to name sort them with `samtools sort -n -o out_name_sort.bam in_index_sort.bam`
 
 ```
-minimap2
-minimap2  
+minimap2 -ax map-hifi -o mat_alignments.sam genomes/hg002v1.1.MATERNAL.fasta reads.fastq
+minimap2 -ax map-hifi -o pat_alignments.sam genomes/hg002v1.1.PATERNAL.fasta reads.fastq
 ./diploidinator -m mat_alignments.sam -p pat_alignments.sam -o diplinator_out
 ```
 ### Merging output files

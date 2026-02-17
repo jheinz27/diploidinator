@@ -127,8 +127,8 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     while mat_iter.peek().is_some() || pat_iter.peek().is_some() {
         //move forward by one read for both files
-        let _ = get_clusters(&mut mat_iter, &mut cluster_mat);
-        let _ = get_clusters(&mut pat_iter, &mut cluster_pat); 
+        get_clusters(&mut mat_iter, &mut cluster_mat)?;
+        get_clusters(&mut pat_iter, &mut cluster_pat)?; 
         
         // handle end-of-file / empty cluster cases CHECK
         match (cluster_mat.first(), cluster_pat.first()) {
@@ -158,7 +158,6 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         } else {
             for rec in cluster_pat.iter_mut() {
                 //output to pat file 
-
                 out_pat.write(rec)?;
 
             }

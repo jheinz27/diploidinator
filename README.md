@@ -47,9 +47,9 @@ minimap2 -ax map-hifi -o pat_alignments.sam genomes/hg002v1.1.PATERNAL.fasta rea
 ```
 ### Merging output files
 
-diploidinator outout files can be merged into one file with: 
+diploidinator output files can be merged into one file with: 
 ```
-samtools merge
+samtools merge -@ 12 merged.bam diplinator_out_mat.bam diplinator_out_pat.bam
 ```
 
 ### CRAM input files 

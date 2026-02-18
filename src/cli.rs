@@ -2,7 +2,7 @@ use clap::Parser;
 
 
 #[derive(Parser, Debug)]
-#[command( name = "diploidinator", about = "Diploidinator: Choose the best alignment to each haploid of a diploid assembly", version = "1.1")]
+#[command( name = "Diplinator", about = "Diplinator: Choose the best alignment to each haploid of a diploid assembly", version = "0.1.0")]
 
 pub struct Cli {
     // 
@@ -12,15 +12,13 @@ pub struct Cli {
     #[arg(short, long, value_name = "FILE", required = true, help="hap2.sam/bam/cram")]
     pub pat: String, 
 
-    //needed for cram format TODO:Add in error handling to make sure this is provifed 
-    //NEED REF FOR MAT AND FOR PAT 
     #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file (mat)")]
     pub ref_mat: Option<String>,
 
     #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file (pat)")]
     pub ref_pat: Option<String>,
 
-    #[arg(short, long, value_name = "PREFIX", default_value = "diploidinator_out", help="prefix of output files")]
+    #[arg(short, long, value_name = "PREFIX", default_value = "diplinator_out", help="prefix of output files")]
     pub out: String, 
 
     // inputs are PAF files

@@ -1,5 +1,5 @@
 use clap::Parser;
-use diploidinator_sams::{Cli, paf, sam};
+use diplinator::{Cli, paf, sam};
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>>  {

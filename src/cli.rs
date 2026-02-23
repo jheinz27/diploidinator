@@ -25,6 +25,10 @@ pub struct Cli {
     #[arg(long,value_name = "BOOL", default_value_t = false, help = "input files are PAF")]
     pub paf: bool,
 
+    // inputs are PAF files
+    #[arg(long,value_name = "BOOL", default_value_t = false, help = "use ms::i tag rather than AS::i for alignment score")]
+    pub ms: bool,
+    
     // number of total threads to use
     #[arg(short, long,value_name = "INT", default_value_t = 8, help = "Total thread pool size (min 4). Multiples of 8 recommended for optimal read/write balance.")]
     pub threads: usize

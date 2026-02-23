@@ -32,7 +32,7 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         let id2 = cluster_pat[0].split('\t').next().unwrap();
         assert_eq!(id1, id2, "PAF streams out of sync: {id1} vs {id2}");
         //get cluster wiht the higher weighted alignment score
-        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat); 
+        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat, args)?; 
         
         // write all records of read with higher weighted alignment score
         if is_winner_mat {
@@ -75,10 +75,9 @@ where
 }
 
 
-
 //helper function to get weighted score of split reads
 //weighted_score = (SUM(AS) / SUM(Alingment len)) * tot read_bps_aligned 
-pub fn get_weighted_as(cur_clust : &Vec<String>) -> f32 {
+pub fn get_weighted_as(cur_clust : &Vec<String>) ->  Result<f32, Box<dyn std::error::Error>> {
     let mut sum_alignment_lens = 0; 
     let mut sum_alignment_scores = 0;
     let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
@@ -119,28 +118,89 @@ pub fn get_weighted_as(cur_clust : &Vec<String>) -> f32 {
     let read_bps_aligned = crate::merge_intervals(&mut read_intervals); 
 
     //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned 
-    return (sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32; 
+    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32); 
 
 }
 
+//helper function to get weighted score of split reads using ms scores 
+//weighted_score = (SUM(ms) / SUM(Alingment len)) * tot read_bps_aligned 
+pub fn get_weighted_ms(cur_clust : &Vec<String>) -> Result<f32, Box<dyn std::error::Error>>{
+    let mut sum_alignment_lens = 0; 
+    let mut sum_alignment_scores = 0;
+    let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
 
-pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>) -> bool{
+    for alignment in cur_clust {
+        let mut fields = alignment.split('\t');
+        // PAF must have at least 12 mandatory columns
+
+        //skip to relevant columns
+        let _qname = fields.next();
+        let _qlen = fields.next();
+        let qstart = fields.next().unwrap().parse::<u32>().unwrap();
+        let qend = fields.next().unwrap().parse::<u32>().unwrap();
+
+        let mut is_secondary = false; 
+        let mut as_score = 0;
+
+        //find AS and tp tags (start from field 12)
+        for field in fields.skip(8) { // skip to tags
+            if field.starts_with("tp:A:S") { is_secondary = true; }
+            if field.starts_with("ms:i:") { 
+                 as_score = field[5..].parse().unwrap_or(0);
+            }
+        }
+        
+        //do not factor secondary alignments into choosing best alignment
+        if is_secondary { continue; } 
+    
+
+        sum_alignment_lens += qend - qstart;
+
+        //store read alignment coordinates to merge all overlaps at end
+        read_intervals.push((qstart, qend));
+
+        sum_alignment_scores += as_score; 
+
+    }
+     
+    //get total read bases aligned in any record 
+    let read_bps_aligned = crate::merge_intervals(&mut read_intervals); 
+
+    //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned 
+    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32); 
+
+}
+
+pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args: &Cli) ->  Result<bool,Box<dyn std::error::Error>> {
+    
     match (clust1[0].split('\t').nth(5), clust2[0].split('\t').nth(5)) {
-        (Some("*"), Some("*")) => return crate::choose_random(clust1[0].split('\t').next().unwrap().to_string()), // both reads unmapped
-        (Some("*"), _) => return false, // mat hap unmapped
-        (_, Some("*")) => return true, // pat ap unmapped
+        (Some("*"), Some("*")) => return Ok(crate::choose_random(clust1[0].split('\t').next().unwrap().to_string())), // both reads unmapped
+        (Some("*"), _) => return Ok(false), // mat hap unmapped
+        (_, Some("*")) => return Ok(true), // pat hap unmapped
         _ => {} // Continue if mapped to both haps 
     }
 
-    let score1 = get_weighted_as(&clust1); 
-    let score2 = get_weighted_as(&clust2); 
+    
+    let (score1, score2) = if args.ms {
+        (
+            //use ms score as alignment score if user sets
+            get_weighted_ms(clust1)?,
+            get_weighted_ms(clust2)?,
+        )
+    } else {
+        (
+             //get AS score for read to each haploid
+            get_weighted_as(clust1)?,
+            get_weighted_as(clust2)?,
+        )
+    };
 
     //return bool of higher alignment
     if score1 > score2 {
-        true
+        Ok(true)
     } else if score1 < score2 {
-        false
+        Ok(false)
     } else {
-        crate::choose_random(clust1[0].split('\t').next().unwrap().to_string())
+        Ok(crate::choose_random(clust1[0].split('\t').next().unwrap().to_string()))
     }
 } 

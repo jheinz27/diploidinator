@@ -147,7 +147,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         //get cluster wiht the higher alignment score
-        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat)?; 
+        let is_winner_mat = compare_clusters(&mut cluster_mat, &mut cluster_pat, &args)?; 
         
         //higher alignment score to maternal hap
         if is_winner_mat {
@@ -257,9 +257,51 @@ fn get_weighted_as(cur_clust : &mut Vec<Record>) -> Result<f32, Box<dyn std::err
 
 }
 
+//helper function to get weighted score of reads using ms tag (useful for transcriptomics)
+fn get_weighted_ms(cur_clust : &mut Vec<Record>) -> Result<f32, Box<dyn std::error::Error>> {
+    
+    let mut sum_alignment_lens = 0; 
+    let mut sum_alignment_scores = 0;
+    let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
+    
+    for rec in cur_clust {
+        //do not factor secondary alignments into choosing best alignment
+        if rec.is_secondary() {continue}; 
+
+        sum_alignment_lens += get_alignment_len(rec);
+
+        let alignment_score: i32 = match rec.aux(b"ms") {
+            Ok(Aux::I8(v))  => v as i32,
+            Ok(Aux::I16(v)) => v as i32,
+            Ok(Aux::I32(v)) => v,
+            Ok(Aux::U8(v))  => v as i32,
+            Ok(Aux::U16(v)) => v as i32, 
+            Ok(Aux::U32(v)) => v as i32, 
+            _ => return Err(format!("Read '{}' is missing the 'ms' tag", 
+            String::from_utf8_lossy(rec.qname())).into()),
+        };
+
+        
+        sum_alignment_scores += alignment_score; 
+        let read_start = get_query_start(rec); 
+    
+        read_intervals.push((read_start, read_start + get_alignment_len(rec))) 
+    }
+    if sum_alignment_lens == 0 {
+        return Ok(0.0);
+    } 
+
+    //get total read bases aligned in any record 
+    let read_bps_aligned = crate::merge_intervals(&mut read_intervals); 
+
+    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32); 
+
+
+
+}
 
 //choose which alignment block to keep 
-fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) ->  Result<bool,Box<dyn std::error::Error>> {
+fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, args:&Cli) ->  Result<bool,Box<dyn std::error::Error>> {
     
     if clust1.is_empty() || clust2.is_empty() {
         return Err("Fatal Error: Attempted to compare empty read clusters. This usually indicates a file sync issue.".into());
@@ -277,10 +319,20 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>) 
         _ => {} //both mapped
     }
 
-    //get AS score for read to each haploid
 
-    let score1 = get_weighted_as(clust1)?; 
-    let score2 = get_weighted_as(clust2)?; 
+    let (score1, score2) = if args.ms {
+        (
+            //use ms score as alignment score if user sets
+            get_weighted_ms(clust1)?,
+            get_weighted_ms(clust2)?,
+        )
+    } else {
+        (
+             //get AS score for read to each haploid
+            get_weighted_as(clust1)?,
+            get_weighted_as(clust2)?,
+        )
+    };
 
     //return bool of higher alignment
     if score1 > score2 {

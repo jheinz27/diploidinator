@@ -1,5 +1,5 @@
 
-# The diploid-inator
+# The diplinator
 Most aligners were not designed for diploid assemblies (eg. HG002), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a tool to report the best haploid aligment for each read based on the weighted alignment score for all primary and supplemental records (see details below). This tool works for SAM/BAM/CRAM format files or PAF files.
 
 

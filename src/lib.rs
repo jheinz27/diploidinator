@@ -5,14 +5,22 @@ pub mod sam;
 use std::hash::{Hash, Hasher};
 use twox_hash::XxHash64;
 
+//enum to store best alignment or read
+pub enum Winner {
+    Asm1,
+    Asm2,
+    Both,
+    Unmapped,
+}
 
-//if read has identical alignment to both haps, chose which hap to report randomly
-//based on last digit of hash of read ID
-//XxHash64 provides reproducible assignment
-pub fn choose_random(id: String) -> bool {
+//if read has identical alignment to both haps,
+//chose which hap to report randomly with equal likelihoods
+//use last bit of hash of read ID (as bytes) as random assignment
+pub fn choose_random(id: &[u8]) -> Winner {
+    //XxHash64 provides reproducible assignment bc is deterministic
     let mut hasher = XxHash64::with_seed(42);
-    id.hash(&mut hasher); 
-    return hasher.finish() & 1 == 0 ; 
+    id.hash(&mut hasher);
+    if hasher.finish() & 1 == 0 { Winner::Asm1 } else { Winner::Asm2 }
 }
 
 //helper function to merge any read alignment segments that overlap in read coordinates
@@ -40,6 +48,7 @@ pub fn merge_intervals(intervals: &mut Vec<(u32, u32)>) -> u32 {
             }
         
         }
+        //add final overlap segment
         read_bps_aligned += cur_end - cur_start
     }
     return read_bps_aligned; 

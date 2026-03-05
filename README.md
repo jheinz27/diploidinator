@@ -41,13 +41,23 @@ Options:
 
 
 
-## Example Usage
+## Example Workflow
 The Diploidinator will only work on a name sorted file, which is the default [minimap2](https://github.com/lh3/minimap2) output. However, if it is desired to use the diploidinator on index sorted bam files, it will be necessary to name sort them with `samtools sort -n -o out_name_sort.bam in_index_sort.bam`
 
 ```
-minimap2 -ax map-hifi -o asm1_alignments.sam genomes/hg002v1.1.asm1.fasta reads.fastq
-minimap2 -ax map-hifi -o asm2_alignments.sam genomes/hg002v1.1.asm2.fasta reads.fastq
+#if needed, split diploid genome assembly fasta into respective haplotypes
+./separate_haps_fasta hg002v1.1.fa #writes hg002v1.1.hap1.fa and hg002v1.1.hap2.fa
+#align reads to each haplotype
+minimap2 -ax map-hifi -o asm1_alignments.sam hg002v1.1.hap1.fa reads.fastq
+minimap2 -ax map-hifi -o asm2_alignments.sam hg002v1.1.hap2.fa reads.fastq
+#run diplinator 
 ./diploidinator -o diplinator_out asm1_alignments.sam asm2_alignments.sam
+
+merge best aligments into one file (if desired)
+
+//save as sorted bam 
+samtools sort
+samtools merge -@ 12 merged.sam diplinator_hap1.sam diplinator_hap2.sam
 ```
 
 With custom sample labels (e.g. grch38 and chm13):

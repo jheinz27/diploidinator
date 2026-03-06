@@ -51,34 +51,31 @@ The Diploidinator will only work on a name sorted file, which is the default [mi
 minimap2 -ax map-hifi -o asm1_alignments.sam hg002v1.1.hap1.fa reads.fastq
 minimap2 -ax map-hifi -o asm2_alignments.sam hg002v1.1.hap2.fa reads.fastq
 #run diplinator 
-./diploidinator -o diplinator_out asm1_alignments.sam asm2_alignments.sam
-
-merge best aligments into one file (if desired)
-
-//save as sorted bam 
-samtools sort
-samtools merge -@ 12 merged.sam diplinator_hap1.sam diplinator_hap2.sam
+./diploidinator -o diplinator_out asm1_alignments.sam asm2_alignments.sam -1 hap1 -2 hap2
+#merge best aligments into one file (if desired)
+samtools merge -@ 12 merged.sam diplinator_out_hap1.sam diplinator_out_hap2.sam
+#save as sorted bam 
+samtools sort -@ 12 -o merged.bam merged.sam
 ```
 
-With custom sample labels (e.g. grch38 and chm13):
+The diplinator has outgrrown its name and can also be used to select best alignments between different reference genomes (e.g. grch38 and chm13):
 ```
-./diploidinator --s1 grch38 --s2 chm13 -o diplinator_out grch38_alignments.sam chm13_alignments.sam
+./diploidinator -1 grch38 -2 chm13 -o diplinator_out grch38_alignments.sam chm13_alignments.sam
 # Output: diplinator_out_grch38.bam  diplinator_out_chm13.bam
 ```
 
 ### Merging output files
 
-diploidinator output files can be merged into one file with:
+diploidinator output files can be merged into one file using samtools:
 ```
 samtools merge -@ 12 merged.bam diplinator_out_asm1.bam diplinator_out_asm2.bam
 ```
 
 ### CRAM input files
-if input files are CRAM format, the original referece genome will need to be provided:
+If input files are CRAM format, the original referece genome will need to be provided:
 ```
 ./diploidinator --ref1 asm1_hap.fasta --ref2 asm2_hap.fasta -o diplinator_out asm1_alignments.cram asm2_alignments.cram
 ```
-
 
 
 ## Example PAF Usage

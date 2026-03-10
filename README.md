@@ -19,9 +19,9 @@ cargo build --release
 
 ## Usage
 ```
-Diploidinator: Choose the best alignment to each haploid of a diploid assembly for every read
+Diplinator: Choose the best alignment to each haploid of a diploid assembly
 
-Usage: diploidinator [OPTIONS] <ASM1> <ASM2>
+Usage: diplinator [OPTIONS] <ASM1> <ASM2>
 
 Arguments:
   <ASM1>  asm1 alignment file (sam/bam/cram/paf)
@@ -30,10 +30,12 @@ Arguments:
 Options:
       --ref1 <FILE>      reference FASTA for cram file (asm1)
       --ref2 <FILE>      reference FASTA for cram file (asm2)
-      --s1 <NAME>        label for asm1 sample (used in output file names and summary) [default: asm1]
-      --s2 <NAME>        label for asm2 sample (used in output file names and summary) [default: asm2]
-  -o, --out <PREFIX>     prefix of output files [default: diploidinator_out]
+  -1, --s1 <NAME>        label for asm1 sample (used in output file names and summary) [default: asm1]
+  -2, --s2 <NAME>        label for asm2 sample (used in output file names and summary) [default: asm2]
+  -u, --unmapped <DEST>  where to write reads unmapped in both assemblies: asm1, asm2, or discard [default: asm1] [possible values: asm1, asm2, discard]
       --paf              input files are PAF
+      --ms               use ms:i: tag rather than AS:i: for alignment score
+  -b, --both             write reads with equal alignment scores to both output files
   -t, --threads <INT>    Total thread pool size (min 4). Multiples of 8 recommended for optimal read/write balance. [default: 8]
   -h, --help             Print help
   -V, --version          Print version

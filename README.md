@@ -1,23 +1,24 @@
+# The Diplinator
 
-# The diplinator
-Most aligners were not designed for diploid assemblies (eg. HG002), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a tool to report the best haploid aligment for each read based on the weighted alignment score for all primary and supplemental records (see details below). This tool works for SAM/BAM/CRAM format files or PAF files.
-
+Most aligners were not designed for diploid assemblies (e.g. HG002), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a tool to report the best haploid alignment for each read based on the weighted alignment score for all primary and supplemental records (see details below). This tool works for SAM/BAM/CRAM format files or PAF files.
 
 ## Installation
+
 Recommended: Download precompiled binary:
-```
-Todo
+```bash
+# Todo
 ```
 
 Build from source:
-```
-git clone https://github.com/jheinz27/diploidinator.git
-cd diploidinator
+```bash
+git clone https://github.com/jheinz27/diplinator.git
+cd diplinator
 cargo build --release
-./target/release/diploidinator
+./target/release/diplinator
 ```
 
 ## Usage
+
 ```
 Diplinator: Choose the best alignment to each haploid of a diploid assembly
 
@@ -41,54 +42,73 @@ Options:
   -V, --version          Print version
 ```
 
-
-
 ## Example Workflow
-The Diploidinator will only work on a name sorted file, which is the default [minimap2](https://github.com/lh3/minimap2) output. However, if it is desired to use the diploidinator on index sorted bam files, it will be necessary to name sort them with `samtools sort -n -o out_name_sort.bam in_index_sort.bam`
 
+Diplinator only works on name-sorted files, which is the default [minimap2](https://github.com/lh3/minimap2) output. If you need to use it on coordinate-sorted BAM files, name-sort them first:
+
+```bash
+samtools sort -n -o out_name_sort.bam in_index_sort.bam
 ```
-#if needed, split diploid genome assembly fasta into respective haplotypes
-./separate_haps_fasta hg002v1.1.fa #writes hg002v1.1.hap1.fa and hg002v1.1.hap2.fa
-#align reads to each haplotype
+
+### Diploid assembly alignment
+
+```bash
+# If needed, split diploid genome assembly FASTA into respective haplotypes
+./separate_haps_fasta hg002v1.1.fa  # writes hg002v1.1.hap1.fa and hg002v1.1.hap2.fa
+
+# Align reads to each haplotype
 minimap2 -ax map-hifi -o asm1_alignments.sam hg002v1.1.hap1.fa reads.fastq
 minimap2 -ax map-hifi -o asm2_alignments.sam hg002v1.1.hap2.fa reads.fastq
-#run diplinator 
-./diploidinator -o diplinator_out asm1_alignments.sam asm2_alignments.sam -1 hap1 -2 hap2
-#merge best aligments into one file (if desired)
-samtools merge -@ 12 merged.sam diplinator_out_hap1.sam diplinator_out_hap2.sam
-#save as sorted bam 
+
+# Run diplinator
+diplinator -1 hap1 -2 hap2 asm1_alignments.sam asm2_alignments.sam
+# Output: diplinator_hap1.sam  diplinator_hap2.sam
+
+# Merge best alignments into one file (if desired)
+samtools merge -@ 12 merged.sam diplinator_hap1.sam diplinator_hap2.sam
+
+# Save as sorted BAM
 samtools sort -@ 12 -o merged.bam merged.sam
 ```
 
-The diplinator has outgrrown its name and can also be used to select best alignments between different reference genomes (e.g. grch38 and chm13):
-```
-./diploidinator -1 grch38 -2 chm13 -o diplinator_out grch38_alignments.sam chm13_alignments.sam
-# Output: diplinator_out_grch38.bam  diplinator_out_chm13.bam
+### Comparing different reference genomes
+
+Diplinator can also be used to select best alignments between different reference genomes (e.g. GRCh38 and CHM13):
+
+```bash
+diplinator -1 grch38 -2 chm13 grch38_alignments.sam chm13_alignments.sam
+# Output: diplinator_grch38.sam  diplinator_chm13.sam
 ```
 
 ### Merging output files
 
-diploidinator output files can be merged into one file using samtools:
-```
-samtools merge -@ 12 merged.bam diplinator_out_asm1.bam diplinator_out_asm2.bam
+Output files can be merged into one file using samtools:
+
+```bash
+samtools merge -@ 12 merged.bam diplinator_asm1.bam diplinator_asm2.bam
 ```
 
 ### CRAM input files
-If input files are CRAM format, the original referece genome will need to be provided:
-```
-./diploidinator --ref1 asm1_hap.fasta --ref2 asm2_hap.fasta -o diplinator_out asm1_alignments.cram asm2_alignments.cram
-```
 
+If input files are CRAM format, the original reference genome must be provided:
+
+```bash
+diplinator --ref1 asm1_hap.fasta --ref2 asm2_hap.fasta asm1_alignments.cram asm2_alignments.cram
+```
 
 ## Example PAF Usage
-NOTE: It is important to use the `--secondary=no --paf-no-hit` flags when aligning with minimap2. If a SAM file is converted to a PAF file with `paftools.js sam2paf` it will NOT have the required AS tag.
-```
-minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.asm1.fasta read.fastq > out_asm1.paf
+
+**NOTE:** It is important to use the `--secondary=no --paf-no-hit` flags when aligning with minimap2. If a SAM file is converted to a PAF file with `paftools.js sam2paf`, it will NOT have the required AS tag.
+
+```bash
+minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.asm1.fasta reads.fastq > out_asm1.paf
 minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.asm2.fasta reads.fastq > out_asm2.paf
-./diploidinator --paf out_asm1.paf out_asm2.paf
+
+diplinator --paf out_asm1.paf out_asm2.paf
+# Output: diplinator_asm1.paf  diplinator_asm2.paf
 ```
 
-## Scoring mechanism used to comparing alignments
+## Scoring Mechanism
 
 Let $n$ be the number of primary and supplementary alignments for a given read to that reference genome.
 
@@ -110,4 +130,4 @@ $$
 S = B \cdot \frac{\sum_{i=0}^{n} a_i}{\sum_{i=0}^{n} l_i}
 $$
 
-If the alignment score of the read is equal in both reference genomes, then the "better" alignment is assigned randomly by taking the last digit of the hash of the read name.
+If the alignment score of the read is equal in both reference genomes, then the "better" alignment is assigned deterministically using a hash of the read name (or written to both output files if `--both` is used).

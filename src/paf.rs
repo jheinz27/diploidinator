@@ -68,19 +68,25 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         let (winner, hapq) = compare_clusters(&mut cluster_asm1, &mut cluster_asm2, args)?;
 
         //logic for which file to write read to given score comparison output
+        //helper: format hq tag suffix if hapq is present
+        let hq_suffix = match hapq {
+            Some(hq) => format!("\thq:i:{}", hq),
+            None => String::new(),
+        };
+
         match winner {
             //asm1 clear winner, write to out_asm1
             crate::Winner::Asm1 => {
                 count_asm1 += 1; // increment read counter
                 for rec in cluster_asm1.iter_mut() {
-                    writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
+                    writeln!(out_asm1, "{}{}", rec, hq_suffix)?;
                 }
             }
             //asm2 clear winner, write to out_asm2
             crate::Winner::Asm2 => {
                 count_asm2 += 1; // increment read counter
                 for rec in cluster_asm2.iter_mut() {
-                    writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
+                    writeln!(out_asm2, "{}{}", rec, hq_suffix)?;
                 }
             }
             crate::Winner::Both => {
@@ -88,10 +94,10 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 //if user specifies --both, write equal scoring reads to both output files
                 if args.both {
                     for rec in cluster_asm1.iter_mut() {
-                        writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
+                        writeln!(out_asm1, "{}{}", rec, hq_suffix)?;
                     }
                     for rec in cluster_asm2.iter_mut() {
-                        writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
+                        writeln!(out_asm2, "{}{}", rec, hq_suffix)?;
                     }
                 //default behavior is randomly assign equal scoring read to one file
                 } else {
@@ -101,12 +107,12 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                     match crate::choose_random(qname.as_bytes()) {
                         crate::Winner::Asm1 => {
                             for rec in cluster_asm1.iter_mut() {
-                                writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
+                                writeln!(out_asm1, "{}{}", rec, hq_suffix)?;
                             }
                         }
                         _ => {
                             for rec in cluster_asm2.iter_mut() {
-                                writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
+                                writeln!(out_asm2, "{}{}", rec, hq_suffix)?;
                             }
                         }
                     }
@@ -116,10 +122,10 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 count_unmapped += 1;
                 match args.unmapped {
                     crate::cli::UnmappedDest::Asm1 => {
-                        for rec in cluster_asm1.iter_mut() { writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?; }
+                        for rec in cluster_asm1.iter_mut() { writeln!(out_asm1, "{}{}", rec, hq_suffix)?; }
                     }
                     crate::cli::UnmappedDest::Asm2 => {
-                        for rec in cluster_asm2.iter_mut() { writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?; }
+                        for rec in cluster_asm2.iter_mut() { writeln!(out_asm2, "{}{}", rec, hq_suffix)?; }
                     }
                     crate::cli::UnmappedDest::Discard => {}
                 }
@@ -265,12 +271,12 @@ pub fn get_weighted_score(cur_clust : &Vec<String>, tag_prefix: &str) -> Result<
 
 }
 
-pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args: &Cli) ->  Result<(crate::Winner, u8), Box<dyn std::error::Error>> {
+pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args: &Cli) ->  Result<(crate::Winner, Option<u8>), Box<dyn std::error::Error>> {
 
     match (clust1[0].split('\t').nth(5), clust2[0].split('\t').nth(5)) {
-        (Some("*"), Some("*")) => {return Ok((crate::Winner::Unmapped, 0));}, // both reads unmapped
-        (Some("*"), _) => return Ok((crate::Winner::Asm2, 60)), // asm1 hap unmapped
-        (_, Some("*")) => return Ok((crate::Winner::Asm1, 60)), // asm2 hap unmapped
+        (Some("*"), Some("*")) => {return Ok((crate::Winner::Unmapped, None));}, // both reads unmapped
+        (Some("*"), _) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60) })), // asm1 hap unmapped
+        (_, Some("*")) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60) })), // asm2 hap unmapped
         _ => {} // continue if mapped to both haps
     }
 
@@ -282,12 +288,12 @@ pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args
     //return respective winner depending on which AS is higher,
     //both is a special case that can be determined by user input
     if score1 > score2 {
-        let hapq = crate::compute_hapq(score1, score2, n_splits1, args.match_sc);
+        let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score1, score2, n_splits1, args.match_sc)) };
         Ok((crate::Winner::Asm1, hapq))
     } else if score1 < score2 {
-        let hapq = crate::compute_hapq(score2, score1, n_splits2, args.match_sc);
+        let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score2, score1, n_splits2, args.match_sc)) };
         Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok((crate::Winner::Both, 0))
+        Ok((crate::Winner::Both, None))
     }
 }

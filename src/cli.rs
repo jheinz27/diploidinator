@@ -45,6 +45,10 @@ pub struct Cli {
     #[arg(long, value_name = "FLOAT", default_value_t = 2.0, help = "per-base match score from aligner scoring scheme (e.g. minimap2 default is 2.0 for long reads)")]
     pub match_sc: f32,
 
+    // skip HAPQ score calculation and hq tag output (for non-haplotype comparisons)
+    #[arg(long, default_value_t = false, help = "skip HAPQ score calculation and hq tag output (e.g. for comparing grch38 vs chm13)")]
+    pub no_hapq: bool,
+
     // number of total threads to use
     #[arg(short, long,value_name = "INT", default_value_t = 8, help = "Total thread pool size (min 4). Multiples of 8 recommended for optimal read/write balance.")]
     pub threads: usize

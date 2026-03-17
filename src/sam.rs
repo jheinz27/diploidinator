@@ -186,7 +186,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             crate::Winner::Asm1 => {
                 count_asm1 += 1; // increment read counter
                 for rec in cluster_asm1.iter_mut() {
-                    rec.push_aux(b"hq", Aux::U8(hapq))?;
+                    if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                     out_asm1.write(rec)?;
                 }
             }
@@ -194,7 +194,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             crate::Winner::Asm2 => {
                 count_asm2 += 1; // increment read counter
                 for rec in cluster_asm2.iter_mut() {
-                    rec.push_aux(b"hq", Aux::U8(hapq))?;
+                    if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                     out_asm2.write(rec)?;
                 }
             }
@@ -203,11 +203,11 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 //if user specifices --both, write equal scoring reads to output files
                 if args.both {
                     for rec in cluster_asm1.iter_mut() {
-                        rec.push_aux(b"hq", Aux::U8(hapq))?;
+                        if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                         out_asm1.write(rec)?;
                     }
                     for rec in cluster_asm2.iter_mut() {
-                        rec.push_aux(b"hq", Aux::U8(hapq))?;
+                        if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                         out_asm2.write(rec)?;
                     }
                 //default behavior is randomly assign equal scoring read to one file
@@ -217,13 +217,13 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                     match crate::choose_random(cluster_asm1[0].qname()) {
                         crate::Winner::Asm1 => {
                             for rec in cluster_asm1.iter_mut() {
-                                rec.push_aux(b"hq", Aux::U8(hapq))?;
+                                if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                                 out_asm1.write(rec)?;
                             }
                         }
                         _ => {
                             for rec in cluster_asm2.iter_mut() {
-                                rec.push_aux(b"hq", Aux::U8(hapq))?;
+                                if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                                 out_asm2.write(rec)?;
                             }
                         }
@@ -235,13 +235,13 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 match args.unmapped {
                     crate::cli::UnmappedDest::Asm1 => {
                         for rec in cluster_asm1.iter_mut() {
-                            rec.push_aux(b"hq", Aux::U8(hapq))?;
+                            if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                             out_asm1.write(rec)?;
                         }
                     }
                     crate::cli::UnmappedDest::Asm2 => {
                         for rec in cluster_asm2.iter_mut() {
-                            rec.push_aux(b"hq", Aux::U8(hapq))?;
+                            if let Some(hq) = hapq { rec.push_aux(b"hq", Aux::U8(hq))?; }
                             out_asm2.write(rec)?;
                         }
                     }
@@ -386,7 +386,7 @@ fn get_weighted_score(cur_clust : &mut Vec<Record>, tag: &[u8]) -> Result<(f32, 
 }
 
 //choose which alignment block to keep
-fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, args:&Cli) ->  Result<(crate::Winner, u8), Box<dyn std::error::Error>> {
+fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, args:&Cli) ->  Result<(crate::Winner, Option<u8>), Box<dyn std::error::Error>> {
 
     //if either cluster is empty there is a file sync issue as every cluster should have at least one record
     if clust1.is_empty() || clust2.is_empty() {
@@ -399,10 +399,10 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
     //handle unmapped read cases
 
     match unmappeds {
-        (true, true) => { return Ok((crate::Winner::Unmapped, 0)); }, //unmapped in both
+        (true, true) => { return Ok((crate::Winner::Unmapped, None)); }, //unmapped in both
         //if read only maps to one hap then that hap is the winner
-        (true, false) => return Ok((crate::Winner::Asm2, 60)), //  mapped in asm2
-        (false, true) => return Ok((crate::Winner::Asm1, 60)), //  mapped in asm1
+        (true, false) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60) })), //  mapped in asm2
+        (false, true) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60) })), //  mapped in asm1
         _ => {} //mapped in both continue to check below
     }
 
@@ -417,13 +417,13 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
     //return respective winner depending on which AS is higher,
     //both is a special case that can be determined by user input
     if score1 > score2 {
-        let hapq = crate::compute_hapq(score1, score2, n_splits1, args.match_sc);
+        let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score1, score2, n_splits1, args.match_sc)) };
         Ok((crate::Winner::Asm1, hapq))
     } else if score1 < score2 {
-        let hapq = crate::compute_hapq(score2, score1, n_splits2, args.match_sc);
+        let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score2, score1, n_splits2, args.match_sc)) };
         Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok((crate::Winner::Both, 0))
+        Ok((crate::Winner::Both, None))
     }
 }
 

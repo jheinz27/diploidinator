@@ -41,6 +41,10 @@ pub struct Cli {
     #[arg(long, value_name = "FILE", required = false, help="reference FASTA for cram file (asm2)")]
     pub ref2: Option<String>,
 
+    // per-base match score from aligner scoring scheme (used in HAPQ calculation)
+    #[arg(long, value_name = "FLOAT", default_value_t = 2.0, help = "per-base match score from aligner scoring scheme (e.g. minimap2 default is 2.0 for long reads)")]
+    pub match_sc: f32,
+
     // number of total threads to use
     #[arg(short, long,value_name = "INT", default_value_t = 8, help = "Total thread pool size (min 4). Multiples of 8 recommended for optimal read/write balance.")]
     pub threads: usize

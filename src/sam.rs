@@ -177,8 +177,8 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        //get cluster with the higher alignment score, returns the Winner enum
-        let winner = compare_clusters(&mut cluster_asm1, &mut cluster_asm2, &args)?;
+        //get cluster with the higher alignment score, returns the Winner enum and HAPQ
+        let (winner, hapq) = compare_clusters(&mut cluster_asm1, &mut cluster_asm2, &args)?;
 
         //logic for which file to write read to given score comparison output
         match winner {
@@ -186,6 +186,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             crate::Winner::Asm1 => {
                 count_asm1 += 1; // increment read counter
                 for rec in cluster_asm1.iter_mut() {
+                    rec.push_aux(b"hq", Aux::U8(hapq))?;
                     out_asm1.write(rec)?;
                 }
             }
@@ -193,6 +194,7 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             crate::Winner::Asm2 => {
                 count_asm2 += 1; // increment read counter
                 for rec in cluster_asm2.iter_mut() {
+                    rec.push_aux(b"hq", Aux::U8(hapq))?;
                     out_asm2.write(rec)?;
                 }
             }
@@ -201,9 +203,11 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 //if user specifices --both, write equal scoring reads to output files
                 if args.both {
                     for rec in cluster_asm1.iter_mut() {
+                        rec.push_aux(b"hq", Aux::U8(hapq))?;
                         out_asm1.write(rec)?;
                     }
                     for rec in cluster_asm2.iter_mut() {
+                        rec.push_aux(b"hq", Aux::U8(hapq))?;
                         out_asm2.write(rec)?;
                     }
                 //default behavior is randomly assign equal scoring read to one file
@@ -213,11 +217,13 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                     match crate::choose_random(cluster_asm1[0].qname()) {
                         crate::Winner::Asm1 => {
                             for rec in cluster_asm1.iter_mut() {
+                                rec.push_aux(b"hq", Aux::U8(hapq))?;
                                 out_asm1.write(rec)?;
                             }
                         }
                         _ => {
                             for rec in cluster_asm2.iter_mut() {
+                                rec.push_aux(b"hq", Aux::U8(hapq))?;
                                 out_asm2.write(rec)?;
                             }
                         }
@@ -228,10 +234,16 @@ pub fn process_sam(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 count_unmapped += 1;
                 match args.unmapped {
                     crate::cli::UnmappedDest::Asm1 => {
-                        for rec in cluster_asm1.iter_mut() { out_asm1.write(rec)?; }
+                        for rec in cluster_asm1.iter_mut() {
+                            rec.push_aux(b"hq", Aux::U8(hapq))?;
+                            out_asm1.write(rec)?;
+                        }
                     }
                     crate::cli::UnmappedDest::Asm2 => {
-                        for rec in cluster_asm2.iter_mut() { out_asm2.write(rec)?; }
+                        for rec in cluster_asm2.iter_mut() {
+                            rec.push_aux(b"hq", Aux::U8(hapq))?;
+                            out_asm2.write(rec)?;
+                        }
                     }
                     crate::cli::UnmappedDest::Discard => {}
                 }
@@ -304,18 +316,31 @@ where
 //helper function to get weighted score of reads using a specified tag (AS or ms)
 //for supplental alignments read segments may have overlapping alignments in read coords
 //want to take average alignment score for every base in the read to determine total score
-fn get_weighted_score(cur_clust : &mut Vec<Record>, tag: &[u8]) -> Result<f32, Box<dyn std::error::Error>> {
+fn get_weighted_score(cur_clust : &mut Vec<Record>, tag: &[u8]) -> Result<(f32, u32), Box<dyn std::error::Error>> {
     //get read name
     let qname = String::from_utf8_lossy(cur_clust[0].qname()).into_owned();
     let mut sum_alignment_lens = 0;
     let mut sum_alignment_scores = 0;
+    let mut n_splits: u32 = 0;
     //store all read intervals mapping anywhere to take union of later (filter out overlapping segments)
     let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
+
+    //get full read length from the first non-secondary record's CIGAR
+    //sum of all query-consuming ops (M/I/=/X/S/H) gives original read length even for supplementaries
+    let mut read_len: u32 = 0;
+    for rec in cur_clust.iter() {
+        if !rec.is_secondary() {
+            read_len = get_read_len(rec);
+            break;
+        }
+    }
 
     for rec in cur_clust {
         //do not factor secondary alignments into choosing best alignment,
         // but still output them with the cluster, we don't want to lose them
         if rec.is_secondary() {continue};
+
+        n_splits += 1;
 
         //get alignment length of this record in read (query) coordinates
         let alen = get_alignment_len(rec);
@@ -352,15 +377,16 @@ fn get_weighted_score(cur_clust : &mut Vec<Record>, tag: &[u8]) -> Result<f32, B
     //returns total read bases aligned in any record, so we can take average over read, without double counting bases
     let read_bps_aligned = crate::merge_intervals(&mut read_intervals);
 
-    //calc weighted alignment score which is:
-    //average alignement score per base across all aligning segments
-    // multiplied by number of unique bases in the read that align
-    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32);
+    //calc weighted alignment score:
+    //average alignment score per base across all aligning segments
+    // multiplied by unique aligned bases, scaled by coverage fraction of the read
+    let cov_fraction = read_bps_aligned as f32 / read_len as f32;
+    return Ok(((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32 * cov_fraction, n_splits));
 
 }
 
 //choose which alignment block to keep
-fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, args:&Cli) ->  Result<crate::Winner, Box<dyn std::error::Error>> {
+fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, args:&Cli) ->  Result<(crate::Winner, u8), Box<dyn std::error::Error>> {
 
     //if either cluster is empty there is a file sync issue as every cluster should have at least one record
     if clust1.is_empty() || clust2.is_empty() {
@@ -373,10 +399,10 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
     //handle unmapped read cases
 
     match unmappeds {
-        (true, true) => { return Ok(crate::Winner::Unmapped); }, //unmapped in both
+        (true, true) => { return Ok((crate::Winner::Unmapped, 0)); }, //unmapped in both
         //if read only maps to one hap then that hap is the winner
-        (true, false) => return Ok(crate::Winner::Asm2), //  mapped in asm2
-        (false, true) => return Ok(crate::Winner::Asm1), //  mapped in asm1
+        (true, false) => return Ok((crate::Winner::Asm2, 60)), //  mapped in asm2
+        (false, true) => return Ok((crate::Winner::Asm1, 60)), //  mapped in asm1
         _ => {} //mapped in both continue to check below
     }
 
@@ -384,23 +410,37 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
     //default is using alignment score (AS:i:) but using ms:i: can be set by user wiht --ms
     let tag: &[u8] = if args.ms { b"ms" } else { b"AS" };
 
-    //get score for each cluster
-    let (score1, score2) = (
-        get_weighted_score(clust1, tag)?,
-        get_weighted_score(clust2, tag)?,
-    );
+    //get score and number of non-secondary alignment segments for each cluster
+    let (score1, n_splits1) = get_weighted_score(clust1, tag)?;
+    let (score2, n_splits2) = get_weighted_score(clust2, tag)?;
 
     //return respective winner depending on which AS is higher,
     //both is a special case that can be determined by user input
     if score1 > score2 {
-        Ok(crate::Winner::Asm1)
+        let hapq = crate::compute_hapq(score1, score2, n_splits1, args.match_sc);
+        Ok((crate::Winner::Asm1, hapq))
     } else if score1 < score2 {
-        Ok(crate::Winner::Asm2)
+        let hapq = crate::compute_hapq(score2, score1, n_splits2, args.match_sc);
+        Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok(crate::Winner::Both)
+        Ok((crate::Winner::Both, 0))
     }
 }
 
+
+//function to get full original read length from CIGAR string
+//sums all query-consuming operations: M/I/=/X/S/H
+fn get_read_len(rec: &Record) -> u32 {
+    let mut rlen = 0;
+    for c in rec.cigar().iter() {
+        match c {
+            Cigar::Match(l) | Cigar::Ins(l) | Cigar::Equal(l) | Cigar::Diff(l)
+            | Cigar::SoftClip(l) | Cigar::HardClip(l) => { rlen += *l },
+            _ => {}
+        }
+    }
+    rlen
+}
 
 //function to get query span of aligned seqment
 fn get_alignment_len(rec: &Record) -> u32  {

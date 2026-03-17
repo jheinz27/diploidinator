@@ -64,8 +64,8 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        //get cluster with the higher alignment score, returns the Winner enum
-        let winner = compare_clusters(&mut cluster_asm1, &mut cluster_asm2, args)?;
+        //get cluster with the higher alignment score, returns the Winner enum and HAPQ
+        let (winner, hapq) = compare_clusters(&mut cluster_asm1, &mut cluster_asm2, args)?;
 
         //logic for which file to write read to given score comparison output
         match winner {
@@ -73,14 +73,14 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             crate::Winner::Asm1 => {
                 count_asm1 += 1; // increment read counter
                 for rec in cluster_asm1.iter_mut() {
-                    writeln!(out_asm1, "{}", rec)?;
+                    writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
                 }
             }
             //asm2 clear winner, write to out_asm2
             crate::Winner::Asm2 => {
                 count_asm2 += 1; // increment read counter
                 for rec in cluster_asm2.iter_mut() {
-                    writeln!(out_asm2, "{}", rec)?;
+                    writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
                 }
             }
             crate::Winner::Both => {
@@ -88,10 +88,10 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 //if user specifies --both, write equal scoring reads to both output files
                 if args.both {
                     for rec in cluster_asm1.iter_mut() {
-                        writeln!(out_asm1, "{}", rec)?;
+                        writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
                     }
                     for rec in cluster_asm2.iter_mut() {
-                        writeln!(out_asm2, "{}", rec)?;
+                        writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
                     }
                 //default behavior is randomly assign equal scoring read to one file
                 } else {
@@ -101,12 +101,12 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                     match crate::choose_random(qname.as_bytes()) {
                         crate::Winner::Asm1 => {
                             for rec in cluster_asm1.iter_mut() {
-                                writeln!(out_asm1, "{}", rec)?;
+                                writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?;
                             }
                         }
                         _ => {
                             for rec in cluster_asm2.iter_mut() {
-                                writeln!(out_asm2, "{}", rec)?;
+                                writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?;
                             }
                         }
                     }
@@ -116,10 +116,10 @@ pub fn process_paf(args: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 count_unmapped += 1;
                 match args.unmapped {
                     crate::cli::UnmappedDest::Asm1 => {
-                        for rec in cluster_asm1.iter_mut() { writeln!(out_asm1, "{}", rec)?; }
+                        for rec in cluster_asm1.iter_mut() { writeln!(out_asm1, "{}\thq:i:{}", rec, hapq)?; }
                     }
                     crate::cli::UnmappedDest::Asm2 => {
-                        for rec in cluster_asm2.iter_mut() { writeln!(out_asm2, "{}", rec)?; }
+                        for rec in cluster_asm2.iter_mut() { writeln!(out_asm2, "{}\thq:i:{}", rec, hapq)?; }
                     }
                     crate::cli::UnmappedDest::Discard => {}
                 }
@@ -196,10 +196,16 @@ where
 
 //helper function to get weighted score of split reads using a specified tag (AS or ms)
 //weighted_score = (SUM(score) / SUM(Alignment_len)) * tot read_bps_aligned
-pub fn get_weighted_score(cur_clust : &Vec<String>, tag_prefix: &str) -> Result<f32, Box<dyn std::error::Error>> {
+pub fn get_weighted_score(cur_clust : &Vec<String>, tag_prefix: &str) -> Result<(f32, u32), Box<dyn std::error::Error>> {
     let mut sum_alignment_lens = 0;
     let mut sum_alignment_scores = 0;
+    let mut n_splits: u32 = 0;
     let mut read_intervals: Vec<(u32, u32)> = Vec::with_capacity(cur_clust.len());
+
+    //get read length from PAF field 1 (query length) of the first record
+    let read_len: u32 = cur_clust[0].split('\t').nth(1)
+        .ok_or("Malformed PAF line: missing qlen field")?
+        .parse().map_err(|e| format!("Invalid qlen in PAF: {}", e))?;
 
     for alignment in cur_clust {
         let mut fields = alignment.split('\t');
@@ -228,6 +234,8 @@ pub fn get_weighted_score(cur_clust : &Vec<String>, tag_prefix: &str) -> Result<
         //do not factor secondary alignments into choosing best alignment
         if is_secondary { continue; }
 
+        n_splits += 1;
+
         //should not happen if paf is formatted correctly
         if qend < qstart {
             return Err(format!("Malformed PAF: qend ({}) < qstart ({}) for read '{}'",
@@ -251,33 +259,35 @@ pub fn get_weighted_score(cur_clust : &Vec<String>, tag_prefix: &str) -> Result<
     //get total read bases aligned in any record
     let read_bps_aligned = crate::merge_intervals(&mut read_intervals);
 
-    //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned
-    return Ok((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32);
+    //weighted_score = (SUM(Alignment_Score) / SUM(Alignment_len)) * tot read_bps_aligned * cov_fraction
+    let cov_fraction = read_bps_aligned as f32 / read_len as f32;
+    return Ok(((sum_alignment_scores as f32 / sum_alignment_lens as f32) * read_bps_aligned as f32 * cov_fraction, n_splits));
 
 }
 
-pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args: &Cli) ->  Result<crate::Winner, Box<dyn std::error::Error>> {
+pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args: &Cli) ->  Result<(crate::Winner, u8), Box<dyn std::error::Error>> {
 
     match (clust1[0].split('\t').nth(5), clust2[0].split('\t').nth(5)) {
-        (Some("*"), Some("*")) => {return Ok(crate::Winner::Unmapped);}, // both reads unmapped
-        (Some("*"), _) => return Ok(crate::Winner::Asm2), // asm1 hap unmapped
-        (_, Some("*")) => return Ok(crate::Winner::Asm1), // asm2 hap unmapped
+        (Some("*"), Some("*")) => {return Ok((crate::Winner::Unmapped, 0));}, // both reads unmapped
+        (Some("*"), _) => return Ok((crate::Winner::Asm2, 60)), // asm1 hap unmapped
+        (_, Some("*")) => return Ok((crate::Winner::Asm1, 60)), // asm2 hap unmapped
         _ => {} // continue if mapped to both haps
     }
 
     let tag_prefix = if args.ms { "ms:i:" } else { "AS:i:" };
-    let (score1, score2) = (
-        get_weighted_score(clust1, tag_prefix)?,
-        get_weighted_score(clust2, tag_prefix)?,
-    );
+    //get score and number of non-secondary alignment segments for each cluster
+    let (score1, n_splits1) = get_weighted_score(clust1, tag_prefix)?;
+    let (score2, n_splits2) = get_weighted_score(clust2, tag_prefix)?;
 
     //return respective winner depending on which AS is higher,
     //both is a special case that can be determined by user input
     if score1 > score2 {
-        Ok(crate::Winner::Asm1)
+        let hapq = crate::compute_hapq(score1, score2, n_splits1, args.match_sc);
+        Ok((crate::Winner::Asm1, hapq))
     } else if score1 < score2 {
-        Ok(crate::Winner::Asm2)
+        let hapq = crate::compute_hapq(score2, score1, n_splits2, args.match_sc);
+        Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok(crate::Winner::Both)
+        Ok((crate::Winner::Both, 0))
     }
 }

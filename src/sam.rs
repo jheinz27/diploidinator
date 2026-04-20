@@ -401,8 +401,8 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
     match unmappeds {
         (true, true) => { return Ok((crate::Winner::Unmapped, None)); }, //unmapped in both
         //if read only maps to one hap then that hap is the winner
-        (true, false) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60) })), //  mapped in asm2
-        (false, true) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60) })), //  mapped in asm1
+        (true, false) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60u8) })), //  mapped in asm2
+        (false, true) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60u8) })), //  mapped in asm1
         _ => {} //mapped in both continue to check below
     }
 
@@ -423,7 +423,8 @@ fn compare_clusters<'a>(clust1:&'a mut Vec<Record>, clust2:&'a mut Vec<Record>, 
         let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score2, score1, n_splits2, args.match_sc)) };
         Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok((crate::Winner::Both, None))
+        let hapq = if args.no_hapq { None } else { Some(0u8) };
+        Ok((crate::Winner::Both, hapq))
     }
 }
 

@@ -275,8 +275,8 @@ pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args
 
     match (clust1[0].split('\t').nth(5), clust2[0].split('\t').nth(5)) {
         (Some("*"), Some("*")) => {return Ok((crate::Winner::Unmapped, None));}, // both reads unmapped
-        (Some("*"), _) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60) })), // asm1 hap unmapped
-        (_, Some("*")) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60) })), // asm2 hap unmapped
+        (Some("*"), _) => return Ok((crate::Winner::Asm2, if args.no_hapq { None } else { Some(60u8) })), // asm1 hap unmapped
+        (_, Some("*")) => return Ok((crate::Winner::Asm1, if args.no_hapq { None } else { Some(60u8) })), // asm2 hap unmapped
         _ => {} // continue if mapped to both haps
     }
 
@@ -294,6 +294,7 @@ pub fn compare_clusters<'a>(clust1:&'a Vec<String>, clust2:&'a Vec<String>, args
         let hapq = if args.no_hapq { None } else { Some(crate::compute_hapq(score2, score1, n_splits2, args.match_sc)) };
         Ok((crate::Winner::Asm2, hapq))
     } else {
-        Ok((crate::Winner::Both, None))
+        let hapq = if args.no_hapq { None } else { Some(0u8) };
+        Ok((crate::Winner::Both, hapq))
     }
 }

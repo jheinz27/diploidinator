@@ -135,7 +135,7 @@ $$
 S = \frac{\sum_{i=1}^{n} a_i}{\sum_{i=1}^{n} l_i} \cdot B \cdot \frac{B}{L}
 $$
 
-The first factor is the average alignment score per aligned base. It is multiplied by the number of unique read bases covered $B$ and then scaled by the read coverage fraction $B/L$, so that reads which align over a large fraction of their length are weighted more heavily than reads which align only over a small portion.
+The first factor is the average alignment score per aligned base. It is multiplied by the number of unique read bases covered, $B$, and then scaled by the read coverage fraction $B/L$, so that reads which align over a large fraction of their length are weighted more heavily than reads which align only over a small portion.
 
 For each read, the assembly with the higher $S$ wins; its full alignment cluster (including secondary alignments) is written to the corresponding output file. If $S$ is equal in both assemblies, the "better" assignment is determined by a hash of the read name, or the read is written to both output files when `--both` is used.
 

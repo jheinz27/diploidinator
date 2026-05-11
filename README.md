@@ -1,6 +1,10 @@
 # The Diplinator
 
-Most aligners were not designed for diploid assemblies (e.g. HG002), so when aligning reads to a diploid assembly, the mapping quality for reads may be lower, as there are multiple locations the read can align to well. We have developed a tool to report the best haploid alignment for each read based on a weighted alignment score computed across all primary and supplemental records (see details below). For each read, Diplinator also reports a haplotype assignment quality (HAPQ) score that captures how confidently the read can be assigned to one haplotype over the other. This tool works for SAM/BAM/CRAM format files or PAF files.
+Diploid genome assemblies are now routinely available, but most read aligners were designed for haploid references. When reads are aligned to a diploid assembly, the aligner sees two nearly identical alignments to either haplotype, and thus reduces the mapping quality (MapQ) score to reflect this ambiguity. This can cause downstream tools to discard reads from easily mappable regions.
+Diplinator resolves this issue by aligning reads to each haplotype assembly separately and assigning each read to its best-supported haplotype. We also introduce a haplotype assignment quality score (HapQ) in Diplinator to quantify confidence in the haplotype of origin of a read.
+
+Diplinator is implemented in Rust, and supports SAM, BAM, CRAM, and PAF formats
+
 
 ## Installation
 
@@ -48,10 +52,10 @@ Each output record is annotated with an `hq:i:` tag carrying the HAPQ score (see
 
 ## Example Workflow
 
-Diplinator only works on name-sorted files, which is the default [minimap2](https://github.com/lh3/minimap2) output. If you need to use it on coordinate-sorted BAM files, name-sort them first:
+Diplinator only works on name-sorted files, which is the default [minimap2](https://github.com/lh3/minimap2) output. Therefore, coordinate-sorted files need to b name-sort first, for example:
 
 ```bash
-samtools sort -n -o out_name_sort.bam in_index_sort.bam
+samtools sort -n -o name_sort.bam index_sort.bam
 ```
 
 ### Diploid assembly alignment
@@ -85,17 +89,9 @@ diplinator --no-hapq -1 grch38 -2 chm13 grch38_alignments.sam chm13_alignments.s
 # Output: diplinator_grch38.sam  diplinator_chm13.sam
 ```
 
-### Merging output files
-
-Output files can be merged into one file using samtools:
-
-```bash
-samtools merge -@ 12 merged.bam diplinator_asm1.bam diplinator_asm2.bam
-```
-
 ### CRAM input files
 
-If input files are CRAM format, the original reference genome must be provided:
+If input files are CRAM format, the original reference genomes must be provided, for example:
 
 ```bash
 diplinator --ref1 asm1_hap.fasta --ref2 asm2_hap.fasta asm1_alignments.cram asm2_alignments.cram
@@ -103,17 +99,17 @@ diplinator --ref1 asm1_hap.fasta --ref2 asm2_hap.fasta asm1_alignments.cram asm2
 
 ## Example PAF Usage
 
-**NOTE:** It is important to use the `--secondary=no --paf-no-hit` flags when aligning with minimap2. If a SAM file is converted to a PAF file with `paftools.js sam2paf`, it will NOT have the required AS tag.
+**NOTE:** It is important to use the `--paf-no-hit` flags when aligning with minimap2. If a SAM file is converted to a PAF file with `paftools.js sam2paf`, it will NOT have the required AS:i: tag.
 
 ```bash
-minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.asm1.fasta reads.fastq > out_asm1.paf
-minimap2 -cx splice -uf -k14 -t 16 --secondary=no --paf-no-hit hg002v1.1.asm2.fasta reads.fastq > out_asm2.paf
+minimap2 -cx map-hifi -o asm1_alignments.paf hg002v1.1.MATERNAL.fa reads.fastq
+minimap2 -cx map-hifi -o asm2_alignments.paf hg002v1.1.PATERNAL.fa reads.fastq
 
 diplinator --paf out_asm1.paf out_asm2.paf
 # Output: diplinator_asm1.paf  diplinator_asm2.paf
 ```
 
-## Scoring Mechanism
+## Weighted Alignment Scoring Mechanism
 
 For each read, Diplinator computes a single weighted alignment score per assembly using all primary and supplementary alignments (secondary alignments are passed through to the output but ignored when scoring).
 
@@ -139,31 +135,41 @@ $$
 S = \frac{\sum_{i=1}^{n} a_i}{\sum_{i=1}^{n} l_i} \cdot B \cdot \frac{B}{L}
 $$
 
-The first factor is the average alignment score per aligned base (across all non-secondary segments). It is multiplied by the number of unique read bases covered $B$ and then scaled by the read coverage fraction $B/L$, so that reads which align over a large fraction of their length are weighted more heavily than reads which align only over a small portion.
+The first factor is the average alignment score per aligned base. It is multiplied by the number of unique read bases covered $B$ and then scaled by the read coverage fraction $B/L$, so that reads which align over a large fraction of their length are weighted more heavily than reads which align only over a small portion.
 
-For each read, the assembly with the higher $S$ wins; its full alignment cluster (including secondary alignments) is written to the corresponding output file. If $S$ is equal in both assemblies, the "better" assignment is determined by a hash of the read name (deterministic and reproducible), or the read is written to both output files when `--both` is used.
+For each read, the assembly with the higher $S$ wins; its full alignment cluster (including secondary alignments) is written to the corresponding output file. If $S$ is equal in both assemblies, the "better" assignment is determined by a hash of the read name, or the read is written to both output files when `--both` is used.
 
-## HAPQ (haplotype assignment quality)
+## HapQ (haplotype assignment quality)
 
-For each read assigned to a winning haplotype, Diplinator reports a HAPQ score in the `hq:i:` tag of the output record. HAPQ is a Phred-like confidence (0-60) that the read was assigned to the correct haplotype. The calculation is modeled on BWA-MEM's `mem_approx_mapq_se`.
+For each read assigned to a winning haplotype, Diplinator reports a HapQ score in the `hq:i:` tag of the output record. HapQ is a Phred-like confidence [0-60] that the read was assigned to the correct haplotype. The calculation is modeled on BWA-MEM's `mem_approx_mapq_se`.
 
-Let $S_w$ and $S_l$ be the weighted alignment scores of the winning and losing assemblies, $m$ the per-base match score (`--match-sc`, default `2.0`), and $k$ the number of non-secondary alignments (splits) on the winning side.
+Let $S_w$ and $S_l$ be the weighted alignment scores of the winning and losing assemblies, $m$ the per-base match scoreof the alignment software used (`--match-sc`, default `2.0`), and $k$ the number of non-secondary alignments (splits) on the winning side.
 
-$$
-\Delta = \frac{S_w - S_l}{m}
-\qquad
-p_\text{split} = \begin{cases} 1 & k \le 3 \\ \dfrac{3}{k} & k > 3 \end{cases}
-$$
+HapQ is the product of: 
 
-$$
-\text{HAPQ} = \mathrm{clamp}\bigl(6.02 \cdot \Delta \cdot p_\text{split},\ 0,\ 60\bigr)
-$$
+d is approximately the difference, in matching bases, between the winning and losing alignments.
+```math
+d = \frac{S_w - S_l}{m}
+```
 
-$\Delta$ is approximately the difference, in matching bases, between the winning and losing alignments. The split penalty $p_\text{split}$ down-weights reads with more than three split alignments, which often fall in complex/repetitive regions where haplotype assignment is less reliable.
+The split penalty $\rho$ down-weights reads with more than three split alignments, which often fall in complex/repetitive regions where haplotype assignment is less reliable.
+```math
+\rho = \begin{cases} 1 & k \le 3 \\ \frac{3}{k} & k > 3 \end{cases}
+```
+
+The final HapQ calculation is then: 
+```math
+\text{HapQ}\;=\;\lfloor\, 6.02 \cdot \rho \cdot d \,\rfloor
+```
+
+Clamped to the range [0,60]. 
 
 Special cases:
-- Read mapped in only one assembly: HAPQ = 60.
-- Read tied between assemblies (winner = `Both`): HAPQ = 0.
+- Read mapped in only one assembly: HapQ = 60.
+- Read tied between assemblies (winner = `Both`): HapQ = 0.
 - Read unmapped in both assemblies: no `hq` tag is written.
 
 If `--no-hapq` is set, HAPQ is not computed and no `hq:i:` tag is added (recommended when the two inputs are not haplotypes of the same sample, e.g. GRCh38 vs CHM13).
+
+## Citation
+If the Diplinator has helped you in your research, please cite our preprint at: TODO
